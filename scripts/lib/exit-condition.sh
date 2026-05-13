@@ -2,11 +2,25 @@
 
 ############################################################################################
 ##
-## Script to Create Exit Condition File for Baseline Script
+## Script to Create Exit Condition File for SecondSon Baseline
 ##
 ## This script creates a marker file to signal that the Baseline script
-## should not execute again. It follows the structure and logging practices
-## of the provided local admin account creation script.
+## should not execute again. It MUST be the last script in the SecondSon
+## Scripts array to ensure all other scripts complete successfully first.
+##
+## The marker path MUST match var.baseline_exit_condition in the Terraform
+## (rendered into the SecondSon mobileconfig as ExitCondition). On its next
+## startup, Baseline checks that path and exits silently if it exists.
+##
+## The marker path is deliberately OUTSIDE /usr/local/Baseline/ because
+## Baseline's CleanupAfterUse=true deletes that directory after a
+## successful run, which would otherwise wipe the marker we just wrote.
+##
+## /var/db/ is a system path that survives reboots and Baseline cleanup,
+## and is wiped on a device reset/re-enrolment — which is the correct
+## behaviour (a wiped device should re-run baseline).
+##
+## IDEMPOTENT: Safe to re-run, checks if marker already exists
 ##
 ############################################################################################
 
@@ -14,7 +28,7 @@
 scriptname="Create Baseline Exit Condition"
 logdir="/Library/IntuneScripts/createBaselineExitCondition"
 log="$logdir/createBaselineExitCondition.log"
-exit_condition_file="/usr/local/Baseline/baseline_exit_condition"
+exit_condition_file="/var/db/.talieisin-baseline-complete"
 
 # Prepare logging directory
 if [[ -d $logdir ]]; then
