@@ -2,43 +2,53 @@
 
 ############################################################################################
 ##
-## Script to Create Exit Condition File for SecondSon Baseline
+## Mark SecondSon Baseline as provisioned for this device.
 ##
-## This script creates a marker file to signal that the Baseline script
-## should not execute again. It MUST be the last script in the SecondSon
-## Scripts array to ensure all other scripts complete successfully first.
+## Final lifecycle script in the SecondSon Baseline Scripts array. Writes a
+## marker file that bootstrap.sh's Phase 3 short-circuit checks before
+## re-installing the Baseline pkg + re-running Baseline.
 ##
-## The marker path MUST match var.baseline_exit_condition in the Terraform
-## (rendered into the SecondSon mobileconfig as ExitCondition). On its next
-## startup, Baseline checks that path and exits silently if it exists.
+## SOURCE OF TRUTH for the marker path:
+##   `SECONDSON_BASELINE_EXIT_CONDITION` managed pref in
+##   /Library/Managed Preferences/com.talieisin.baseline.plist
+##   (rendered by Terraform from var.baseline_exit_condition).
 ##
-## The marker path is deliberately OUTSIDE /usr/local/Baseline/ because
-## Baseline's CleanupAfterUse=true deletes that directory after a
-## successful run, which would otherwise wipe the marker we just wrote.
+## The script reads that managed pref so the marker path is configurable
+## from Terraform without editing this script. If the pref is unset (which
+## shouldn't happen in normal operation), the script logs a warning and
+## exits without writing — Phase 3 will then re-run on the next bootstrap.
 ##
-## /var/db/ is a system path that survives reboots and Baseline cleanup,
-## and is wiped on a device reset/re-enrolment — which is the correct
-## behaviour (a wiped device should re-run baseline).
+## MARKER CONTENTS (forensic only, not parsed):
+##   version=<SECONDSON_BASELINE_VERSION>
+##   completed=<ISO 8601 UTC timestamp>
+##   hostname=<device name>
 ##
-## IDEMPOTENT: Safe to re-run, checks if marker already exists
+## bootstrap.sh treats the marker as a binary signal — presence = skip,
+## absence = run. The contents exist for IT support: `cat /var/db/...`
+## shows what version provisioned the device and when.
+##
+## Operator contract (see baseline/README.md):
+##   Bumping `var.secondson_baseline_version` does NOT auto-upgrade existing
+##   devices. To force re-run on the fleet, deploy a one-off Intune script
+##   that removes the marker, then redeploy bootstrap.sh.
+##
+## CleanupAfterUse=true deletes /usr/local/Baseline/ after a successful
+## Baseline run; we deliberately write to /var/db/ instead so the marker
+## survives. /var/db/ is also wiped on a device reset/re-enrolment — which
+## is the correct behaviour (a fresh device should re-run baseline).
+##
+## IDEMPOTENT: safe to re-run; overwrites the marker on each successful run.
 ##
 ############################################################################################
 
-# Define variables
 scriptname="Create Baseline Exit Condition"
 logdir="/Library/IntuneScripts/createBaselineExitCondition"
 log="$logdir/createBaselineExitCondition.log"
-exit_condition_file="/var/db/.talieisin-baseline-complete"
+pref_domain="com.talieisin.baseline"
+managed_prefs="/Library/Managed Preferences/$pref_domain"
 
 # Prepare logging directory
-if [[ -d $logdir ]]; then
-    echo "# $(date) | Log directory already exists - $logdir"
-else
-    echo "# $(date) | Creating log directory - $logdir"
-    mkdir -p "$logdir"
-fi
-
-# Start logging
+mkdir -p "$logdir"
 exec 1>> "$log" 2>&1
 
 echo ""
@@ -47,28 +57,38 @@ echo "# $(date) | Starting $scriptname"
 echo "##############################################################"
 echo ""
 
-# Check if exit condition file already exists
-if [[ -f "$exit_condition_file" ]]; then
-    echo "$(date) | Exit condition file already exists at $exit_condition_file"
-    echo "$(date) | No action needed. Exiting script."
-    exit 0
-else
-    echo "$(date) | Exit condition file not found. Proceeding to create it."
+# Read the marker path + version from managed prefs (the rendered mobileconfig
+# is the single source of truth for both).
+exit_condition_file=$(/usr/bin/defaults read "$managed_prefs" SECONDSON_BASELINE_EXIT_CONDITION 2>/dev/null || echo "")
+baseline_version=$(/usr/bin/defaults read "$managed_prefs" SECONDSON_BASELINE_VERSION 2>/dev/null || echo "unknown")
+
+if [[ -z "$exit_condition_file" ]]; then
+    echo "$(date) | ERROR: SECONDSON_BASELINE_EXIT_CONDITION not set in $managed_prefs"
+    echo "$(date) | Refusing to write marker without a configured path. Exiting."
+    exit 1
 fi
 
-# Create the directory for the exit condition file if it doesn't exist
+# Ensure parent dir exists (normally /var/db, which is always present).
 exit_condition_dir=$(dirname "$exit_condition_file")
 if [[ ! -d "$exit_condition_dir" ]]; then
-    echo "$(date) | Creating directory for exit condition file: $exit_condition_dir"
+    echo "$(date) | Creating parent directory: $exit_condition_dir"
     mkdir -p "$exit_condition_dir"
 fi
 
-# Create the exit condition file with a timestamp
-echo "$(date) | Creating exit condition file at $exit_condition_file"
-echo "Baseline script completed on $(date)" > "$exit_condition_file"
+# Write the marker file. Contents are forensic (not parsed by bootstrap.sh).
+# Overwrite unconditionally so re-runs after a force-remove + re-provision
+# capture the latest version/timestamp.
+echo "$(date) | Writing exit condition marker at $exit_condition_file"
+completed_ts=$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)
+hostname=$(/bin/hostname -s 2>/dev/null || echo "unknown")
+cat > "$exit_condition_file" <<EOF
+version=$baseline_version
+completed=$completed_ts
+hostname=$hostname
+EOF
 
-# Set appropriate permissions
 chmod 644 "$exit_condition_file"
-echo "$(date) | Set permissions to 644 for $exit_condition_file"
+chown root:wheel "$exit_condition_file" 2>/dev/null || true
 
-echo "$(date) | Exit condition file created successfully. Script completed."
+echo "$(date) | Marker written: version=$baseline_version completed=$completed_ts"
+echo "$(date) | Script completed successfully."
