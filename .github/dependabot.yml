@@ -1,4 +1,4 @@
-# managed-by: talieisin-org-bootstrap v4
+# managed-by: talieisin-org-bootstrap v5
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -7,6 +7,10 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 10
     groups:
+      majors:
+        applies-to: version-updates
+        patterns: ["*"]
+        update-types: ["major"]
       minor-and-patch:
         applies-to: version-updates
         patterns: ["*"]
