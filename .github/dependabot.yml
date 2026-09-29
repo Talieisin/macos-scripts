@@ -1,4 +1,4 @@
-# managed-by: talieisin-org-bootstrap v5
+# managed-by: talieisin-org-bootstrap v6
 version: 2
 updates:
   - package-ecosystem: "github-actions"
