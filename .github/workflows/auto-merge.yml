@@ -1,4 +1,6 @@
-# managed-by: talieisin-org-bootstrap v1
+# managed-by: talieisin-org-bootstrap v7
+# Hub reference pinned to a Talieisin/.github commit (every caller job
+# receives org secrets); the nightly sweep proposes each bump.
 name: Auto-merge
 on: pull_request
 
@@ -9,5 +11,5 @@ permissions:
 jobs:
   auto-merge:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
-    uses: Talieisin/.github/.github/workflows/auto-merge.yml@main
+    uses: Talieisin/.github/.github/workflows/auto-merge.yml@564a9b6f13c29eaeecf6db6c5d054bd6ac1f57e5 # main 2026-11-19
     secrets: inherit
